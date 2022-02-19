@@ -86,6 +86,7 @@ const char * find_outbound(char * remote_ip) {
     close(sockfd);
     return inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf));
   }
+  close(sockfd);
   return "";
 }
 
@@ -123,6 +124,9 @@ int watcher_daemon(const char * handle_script) {
   int len = 20480;
   char buff[2048];
 
+  char this_outbound[INET_ADDRSTRLEN] = "";
+  char last_outbound[INET_ADDRSTRLEN] = "";
+
   socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
   if ((socket_fd < 0) || (setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, &len, sizeof(len)))) {
     return 1;
@@ -143,10 +147,16 @@ int watcher_daemon(const char * handle_script) {
 
   trigger_handle(handle_script);
 
+  memcpy(last_outbound, find_outbound("8.8.8.8"), INET_ADDRSTRLEN);
+
   while((read_buf = read(socket_fd, buff, sizeof(buff))) > 0) {
     for(nh = (struct nlmsghdr *) buff; NLMSG_OK(nh, read_buf); nh = NLMSG_NEXT(nh, read_buf)) {
-      if((nh->nlmsg_type == RTM_NEWROUTE) && (rta_gateway(nh) == 1)) {
-        trigger_handle(handle_script);
+      if (nh->nlmsg_type == RTM_NEWROUTE) {
+        memcpy(this_outbound, find_outbound("8.8.8.8"), INET_ADDRSTRLEN);
+        if ((strlen(this_outbound)>0) && (strcmp(this_outbound,last_outbound)!=0)) {
+          memcpy(last_outbound, this_outbound, INET_ADDRSTRLEN);
+          trigger_handle(handle_script);
+        }
       }
     }
   }
